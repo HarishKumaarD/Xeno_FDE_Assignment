@@ -1,140 +1,38 @@
-// FILE 3: /api/insights/top-customers/route.ts
-// import { NextRequest, NextResponse } from 'next/server';
-// import { PrismaClient } from '@prisma/client';
-// // import { getServerSession } from 'next-auth/next';
-// // import { authOptions } from '@/lib/auth';
-
-// const prisma = new PrismaClient();
-
-// export async function GET(request: NextRequest) {
-//   try {
-//     console.log('[API/top-customers] Starting request...');
-    
-//     // FIXED: Authentication with proper context
-//     const session = await getServerSession(authOptions);
-//     console.log('[API/top-customers] Session:', session ? 'Found' : 'Not found');
-    
-//     if (!session?.user?.id) {
-//       console.log('[API/top-customers] Authentication failed');
-//       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-//     }
-
-//     const userId = session.user.id;
-//     console.log('[API/top-customers] User ID:', userId);
-
-//     // Find the store connected to the currently logged-in user
-//     const store = await prisma.store.findFirst({
-//       where: { userId: userId },
-//     });
-
-//     console.log('[API/top-customers] Store found:', store ? store.shop : 'None');
-
-//     if (!store) {
-//       return NextResponse.json({ error: 'No store connected for this user.' }, { status: 404 });
-//     }
-
-//     // Perform the database query to get top customers
-//     const result = await getTopCustomersForStore(store.id);
-//     return result;
-
-//   } catch (error) {
-//     console.error("[API/top-customers] Failed to fetch top customers:", error);
-//     const message = error instanceof Error ? error.message : 'An unexpected error occurred';
-//     return NextResponse.json({ error: message }, { status: 500 });
-//   } finally {
-//     await prisma.$disconnect();
-//   }
-// }
-
-// async function getTopCustomersForStore(storeId: string) {
-//   try {
-//     console.log('[API/top-customers] Querying top customers for store:', storeId);
-    
-//     // This advanced Prisma query groups orders by customer, sums their spending,
-//     // orders by that sum, and takes the top 5.
-//     const topCustomersSpend = await prisma.order.groupBy({
-//       by: ['customerId'],
-//       where: {
-//         storeId: storeId,
-//         customerId: { not: null }, // Exclude orders without a linked customer
-//       },
-//       _sum: {
-//         totalPrice: true,
-//       },
-//       orderBy: {
-//         _sum: {
-//           totalPrice: 'desc',
-//         },
-//       },
-//       take: 5,
-//     });
-
-//     console.log('[API/top-customers] Found top customers:', topCustomersSpend.length);
-
-//     // If there are no orders with customers, return an empty array.
-//     if (topCustomersSpend.length === 0) {
-//       return NextResponse.json([]);
-//     }
-    
-//     // Extract the customer IDs from the aggregation result.
-//     const customerIds = topCustomersSpend.map(c => c.customerId as string);
-
-//     // Fetch the full details (name, email) for those top customer IDs.
-//     const customers = await prisma.customer.findMany({
-//       where: { id: { in: customerIds } },
-//     });
-
-//     console.log('[API/top-customers] Found customer details for:', customers.length, 'customers');
-
-//     // Create a lookup map for easy access to customer details.
-//     const customerMap = new Map(customers.map(c => [c.id, c]));
-
-//     // Combine the spending data with the customer details into a final response object.
-//     const result = topCustomersSpend.map(spend => {
-//       const details = customerMap.get(spend.customerId as string);
-//       return {
-//         name: `${details?.firstName || ''} ${details?.lastName || ''}`.trim() || 'Unknown Customer',
-//         email: details?.email || 'No email',
-//         totalSpend: Number(spend._sum.totalPrice || 0),
-//       };
-//     });
-
-//     console.log('[API/top-customers] Final result:', result);
-//     return NextResponse.json(result);
-    
-//   } catch (error) {
-//     console.error('[API/top-customers] Error in getTopCustomersForStore:', error);
-//     throw error;
-//   }
-// }
-
-// FILE 3: /api/insights/top-customers/route.ts
+// FILE: /api/insights/top-customers/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-// import { getServerSession } from 'next-auth/next';
-// import { authOptions } from '@/lib/auth';
-
-const prisma = new PrismaClient();
+import prisma from '@/lib/prisma';
+import { currentUser } from '@clerk/nextjs/server';
 
 export async function GET(request: NextRequest) {
   try {
     console.log('[API/top-customers] Starting request...');
     
-    // Get all stores or a specific store if provided
-    const { searchParams } = new URL(request.url);
-    const storeId = searchParams.get('storeId');
-    
-    let store;
-    
-    if (storeId) {
-      // If storeId is provided, use that specific store
-      console.log('[API/top-customers] Using provided store ID:', storeId);
-      store = await prisma.store.findUnique({
-        where: { id: storeId },
-      });
-    } else {
-      // If no storeId provided, get the first available store
-      console.log('[API/top-customers] No store ID provided, fetching first available store');
+    // Get authenticated user
+    const user = await currentUser();
+    if (!user?.id) {
+      console.log('[API/top-customers] No authenticated user found');
+      // Fallback: try to get first available store if no auth
+      const store = await prisma.store.findFirst();
+      if (!store) {
+        return NextResponse.json({ 
+          error: 'No store found and no authenticated user',
+          availableStores: await getAvailableStores() 
+        }, { status: 404 });
+      }
+      
+      // Get data for first available store
+      const result = await getCombinedDataForStore(store.id);
+      return result;
+    }
+
+    // Get store for authenticated user
+    let store = await prisma.store.findFirst({
+      where: { userId: user.id },
+    });
+
+    // Fallback: if no store for user, get first available store
+    if (!store) {
+      console.log('[API/top-customers] No store for user, trying first available store');
       store = await prisma.store.findFirst();
     }
 
@@ -142,28 +40,52 @@ export async function GET(request: NextRequest) {
 
     if (!store) {
       return NextResponse.json({ 
-        error: 'No store found. Please provide a storeId parameter or ensure stores exist in the database.',
+        error: 'No store found. Please ensure stores exist in the database.',
         availableStores: await getAvailableStores() 
       }, { status: 404 });
     }
 
-    // Perform the database query to get top customers
-    const result = await getTopCustomersForStore(store.id);
+    // Get combined data (customers and orders)
+    const result = await getCombinedDataForStore(store.id);
     return result;
 
   } catch (error) {
-    console.error("[API/top-customers] Failed to fetch top customers:", error);
+    console.error("[API/top-customers] Failed to fetch data:", error);
     const message = error instanceof Error ? error.message : 'An unexpected error occurred';
     return NextResponse.json({ error: message }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
   }
 }
 
-async function getTopCustomersForStore(storeId: string) {
+async function getCombinedDataForStore(storeId: string) {
   try {
-    console.log('[API/top-customers] Querying top customers for store:', storeId);
+    console.log('[API/top-customers] Querying combined data for store:', storeId);
     
+    // Fetch top customers and top orders in parallel
+    const [topCustomersData, topOrdersData] = await Promise.all([
+      getTopCustomersData(storeId),
+      getTopOrdersData(storeId)
+    ]);
+
+    const result = {
+      topCustomers: topCustomersData,
+      topOrders: topOrdersData
+    };
+
+    console.log('[API/top-customers] Combined result:', {
+      customersCount: result.topCustomers.length,
+      ordersCount: result.topOrders.length
+    });
+    
+    return NextResponse.json(result);
+    
+  } catch (error) {
+    console.error('[API/top-customers] Error in getCombinedDataForStore:', error);
+    throw error;
+  }
+}
+
+async function getTopCustomersData(storeId: string) {
+  try {
     const topCustomersSpend = await prisma.order.groupBy({
       by: ['customerId'],
       where: {
@@ -181,10 +103,8 @@ async function getTopCustomersForStore(storeId: string) {
       take: 5,
     });
 
-    console.log('[API/top-customers] Found top customers:', topCustomersSpend.length);
-
     if (topCustomersSpend.length === 0) {
-      return NextResponse.json([]);
+      return [];
     }
     
     const customerIds = topCustomersSpend.map(c => c.customerId as string);
@@ -192,24 +112,60 @@ async function getTopCustomersForStore(storeId: string) {
       where: { id: { in: customerIds } },
     });
 
-    console.log('[API/top-customers] Found customer details for:', customers.length, 'customers');
-
     const customerMap = new Map(customers.map(c => [c.id, c]));
     const result = topCustomersSpend.map(spend => {
       const details = customerMap.get(spend.customerId as string);
       return {
+        customerId: details?.id,
         name: `${details?.firstName || ''} ${details?.lastName || ''}`.trim() || 'Unknown Customer',
         email: details?.email || 'No email',
         totalSpend: Number(spend._sum.totalPrice || 0),
       };
     });
 
-    console.log('[API/top-customers] Final result:', result);
-    return NextResponse.json(result);
-    
+    return result;
   } catch (error) {
-    console.error('[API/top-customers] Error in getTopCustomersForStore:', error);
-    throw error;
+    console.error('[API/top-customers] Error getting top customers:', error);
+    return [];
+  }
+}
+
+async function getTopOrdersData(storeId: string) {
+  try {
+    const orders = await prisma.order.findMany({
+      where: { storeId: storeId },
+      orderBy: { totalPrice: 'desc' },
+      take: 5,
+      select: {
+        id: true,
+        orderNumber: true,
+        totalPrice: true,
+        currency: true,
+        processedAt: true,
+        customer: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+          }
+        }
+      }
+    });
+
+    const mapped = orders.map(o => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      total: Number(o.totalPrice),
+      currency: o.currency,
+      date: o.processedAt ? o.processedAt.toISOString() : null,
+      customerName: [o.customer?.firstName, o.customer?.lastName].filter(Boolean).join(' ') || 'Guest',
+      customerEmail: o.customer?.email || undefined,
+    }));
+
+    return mapped;
+  } catch (error) {
+    console.error('[API/top-customers] Error getting top orders:', error);
+    return [];
   }
 }
 

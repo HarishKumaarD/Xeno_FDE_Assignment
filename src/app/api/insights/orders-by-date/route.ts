@@ -86,9 +86,9 @@
 // }
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import prisma from '@/lib/prisma';
 
-const prisma = new PrismaClient();
+// Using shared Prisma client
 
 export async function GET(request: NextRequest) {
   try {
@@ -160,6 +160,5 @@ export async function GET(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'An unexpected error occurred';
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {
-    await prisma.$disconnect();
   }
 }

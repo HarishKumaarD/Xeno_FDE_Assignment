@@ -1,21 +1,51 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { currentUser } from '@clerk/nextjs/server';
 
 const prisma = new PrismaClient();
 
+// Function to register webhooks with Shopify
+async function registerWebhooks(shop: string, accessToken: string) {
+  const webhookUrl = `${process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/api/webhooks/orders-create`;
+  
+  try {
+    // Register orders/create webhook
+    const webhookResponse = await fetch(`https://${shop}/admin/api/2024-07/webhooks.json`, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        webhook: {
+          topic: 'orders/create',
+          address: webhookUrl,
+          format: 'json'
+        }
+      })
+    });
+
+    if (webhookResponse.ok) {
+      console.log(`Webhook registered successfully for ${shop}`);
+    } else {
+      console.error(`Failed to register webhook for ${shop}:`, await webhookResponse.text());
+    }
+  } catch (error) {
+    console.error(`Error registering webhook for ${shop}:`, error);
+  }
+}
+
 export async function GET(request: Request) {
   try {
-    // 1. Get the current user's session.
-    const session = await getServerSession(authOptions);
+    // 1. Get the current user from Clerk
+    const user = await currentUser();
 
     // 2. Ensure a user is logged into our app before connecting a store.
-    if (!session?.user?.id) {
+    if (!user?.id) {
       console.error('CRITICAL: User not authenticated during Shopify callback.');
-      return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/login?error=unauthenticated`);
+      return NextResponse.redirect(`${process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/login?error=unauthenticated`);
     }
-    const userId = session.user.id;
+    const userId = user.id;
 
     // 3. Parse parameters from the Shopify redirect.
     const { searchParams } = new URL(request.url);
@@ -24,7 +54,7 @@ export async function GET(request: Request) {
     // You should also validate the 'state' parameter against a stored value for security.
 
     if (!shop || !code) {
-      return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/connect?error=missing_params`);
+      return NextResponse.redirect(`${process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/connect?error=missing_params`);
     }
 
     // 4. Exchange the temporary authorization code for a permanent access token.
@@ -58,15 +88,16 @@ export async function GET(request: Request) {
 
     console.log(`Store '${shop}' connected successfully for user ID: ${userId}`);
     
-    // Webhook registration logic can be called here.
+    // 6. Register webhooks with Shopify
+    await registerWebhooks(shop, access_token);
 
-    // 6. Redirect to the dashboard upon success.
-    return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard?connected=true`);
+    // 7. Redirect to the dashboard upon success.
+    return NextResponse.redirect(`${process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/dashboard?connected=true`);
 
   } catch (error) {
     console.error('OAuth callback error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-    return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/connect?error=${encodeURIComponent(errorMessage)}`);
+    return NextResponse.redirect(`${process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'}/connect?error=${encodeURIComponent(errorMessage)}`);
   }
 }
 

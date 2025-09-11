@@ -170,11 +170,11 @@
 
 // FILE 1: /api/insights/totals/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import prisma from '@/lib/prisma';
 // import { getServerSession } from 'next-auth/next';
 // import { authOptions } from '@/lib/auth';
 
-const prisma = new PrismaClient();
+// Using shared Prisma client
 
 async function syncHistoricalData(store: { id: string; shop: string; accessToken: string; }) {
   console.log(`[SYNC] Starting historical data sync for ${store.shop}...`);
@@ -350,7 +350,6 @@ export async function GET(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'An unexpected error occurred';
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {
-    await prisma.$disconnect();
   }
 }
 
