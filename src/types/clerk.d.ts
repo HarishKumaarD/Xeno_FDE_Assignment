@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 declare module '@clerk/nextjs' {
   import * as React from 'react';
   export const ClerkProvider: React.ComponentType<{ children?: React.ReactNode }>;
