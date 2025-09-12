@@ -6,20 +6,25 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const storeIdParam = searchParams.get('storeId');
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 });
     }
 
-    // Use first store as fallback (aligns with other insights routes)
-    const store = await prisma.store.findFirst();
-    if (!store) {
+    // Resolve storeId
+    let storeId = storeIdParam || undefined;
+    if (!storeId) {
+      const store = await prisma.store.findFirst();
+      storeId = store?.id;
+    }
+    if (!storeId) {
       return NextResponse.json({ error: 'No store found in database.' }, { status: 404 });
     }
 
     const orders = await prisma.order.findMany({
       where: {
-        storeId: store.id,
+        storeId,
         processedAt: {
           gte: new Date(startDate),
           lt: new Date(new Date(endDate).getTime() + 24 * 60 * 60 * 1000),

@@ -182,25 +182,15 @@ export async function GET(request: NextRequest) {
 
     // Get storeId from query parameter or use first available store
     const { searchParams } = new URL(request.url);
-    const storeId = searchParams.get('storeId');
-    
-    let store;
-    
-    if (storeId) {
-      // If storeId is provided, use that specific store
-      console.log('[API/totals] Using provided store ID:', storeId);
-      store = await prisma.store.findUnique({
-        where: { id: storeId },
-      });
-    } else {
-      // If no storeId provided, get the first available store
-      console.log('[API/totals] No store ID provided, fetching first available store');
-      store = await prisma.store.findFirst();
+    const storeIdParam = searchParams.get('storeId');
+    let storeId = storeIdParam || undefined;
+    if (!storeId) {
+      const s = await prisma.store.findFirst();
+      storeId = s?.id;
     }
+    console.log('[API/totals] Store resolved:', storeId || 'None');
 
-    console.log('[API/totals] Store found:', store ? store.shop : 'None');
-
-    if (!store) {
+    if (!storeId) {
       return NextResponse.json({ 
         error: 'No store found. Please provide a storeId parameter or ensure stores exist in the database.',
         availableStores: await getAvailableStores() 
@@ -210,15 +200,15 @@ export async function GET(request: NextRequest) {
     // Calculate the totals for the specific store
     const totalRevenueResult = await prisma.order.aggregate({
       _sum: { totalPrice: true },
-      where: { storeId: store.id },
+      where: { storeId },
     });
     
     const totalOrders = await prisma.order.count({
-      where: { storeId: store.id },
+      where: { storeId },
     });
     
     const totalCustomers = await prisma.customer.count({
-      where: { storeId: store.id },
+      where: { storeId },
     });
 
     const response = {

@@ -50,6 +50,11 @@ interface TopOrder {
   customerEmail?: string
 }
 
+interface StoreSummary {
+  id: string
+  shop: string
+}
+
 // --- Main Dashboard Component ---
 export default function DashboardPage() {
   // --- State Management ---
@@ -73,23 +78,50 @@ export default function DashboardPage() {
   >([])
   const [isOrdersLoading, setIsOrdersLoading] = useState(false)
 
+  const [stores, setStores] = useState<StoreSummary[]>([])
+  const [storeId, setStoreId] = useState<string | null>(null)
+
   const { signOut } = useClerk()
+
+  const ensureStoreSelected = useCallback(async () => {
+    if (storeId) return storeId
+    const res = await fetch("/api/stores", { cache: "no-store" })
+    if (!res.ok) throw new Error("Failed to load stores")
+    const data = (await res.json()) as { stores: StoreSummary[] }
+    setStores(data.stores || [])
+    const first = data.stores?.[0]?.id || null
+    setStoreId(first)
+    if (!first) throw new Error("No stores found for your account")
+    return first
+  }, [storeId])
+
+  const withStoreParam = (url: string, id: string) => {
+    const sep = url.includes("?") ? "&" : "?"
+    return `${url}${sep}storeId=${encodeURIComponent(id)}`
+  }
 
   // --- Data Fetching Logic ---
   const fetchData = useCallback(async () => {
     setIsLoading(true)
     try {
+      const id = await ensureStoreSelected()
       // Fetch all dashboard data in parallel for better performance
       const [totalsRes, chartRes, avgRevRes, topCustomersRes, currentMonthRes] = await Promise.all([
-        fetch("/api/insights/totals"),
+        fetch(withStoreParam("/api/insights/totals", id)),
         fetch(
-          `/api/insights/orders-by-date?startDate=${format(date!.from!, "yyyy-MM-dd")}&endDate=${format(date!.to!, "yyyy-MM-dd")}`,
+          withStoreParam(
+            `/api/insights/orders-by-date?startDate=${format(date!.from!, "yyyy-MM-dd")}&endDate=${format(date!.to!, "yyyy-MM-dd")}`,
+            id,
+          ),
         ),
         fetch(
-          `/api/insights/avg-revenue-by-date?startDate=${format(date!.from!, "yyyy-MM-dd")}&endDate=${format(date!.to!, "yyyy-MM-dd")}`,
+          withStoreParam(
+            `/api/insights/avg-revenue-by-date?startDate=${format(date!.from!, "yyyy-MM-dd")}&endDate=${format(date!.to!, "yyyy-MM-dd")}`,
+            id,
+          ),
         ),
-        fetch("/api/insights/top-customers"), // This now returns both customers and orders
-        fetch("/api/insights/current-month"),
+        fetch(withStoreParam("/api/insights/top-customers", id)),
+        fetch(withStoreParam("/api/insights/current-month", id)),
       ])
 
       if (!totalsRes.ok || !chartRes.ok || !avgRevRes.ok || !topCustomersRes.ok || !currentMonthRes.ok) {
@@ -129,38 +161,44 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [date])
+  }, [date, ensureStoreSelected])
 
   // Poll totals endpoint until data is available or timeout
   const pollUntilReady = useCallback(async () => {
     const timeoutMs = 30000
     const start = Date.now()
     let delay = 1000
-    while (Date.now() - start < timeoutMs) {
-      try {
-        const res = await fetch("/api/insights/totals", { cache: "no-store" })
-        if (res.ok) {
-          const data: Totals = await res.json()
-          const hasData = (data.totalOrders ?? 0) > 0 || (data.totalCustomers ?? 0) > 0 || (data.totalSpent ?? 0) > 0
-          if (hasData) {
-            setTotals(data)
-            return true
+    try {
+      const id = await ensureStoreSelected()
+      while (Date.now() - start < timeoutMs) {
+        try {
+          const res = await fetch(withStoreParam("/api/insights/totals", id), { cache: "no-store" })
+          if (res.ok) {
+            const data: Totals = await res.json()
+            const hasData = (data.totalOrders ?? 0) > 0 || (data.totalCustomers ?? 0) > 0 || (data.totalSpent ?? 0) > 0
+            if (hasData) {
+              setTotals(data)
+              return true
+            }
           }
-        }
-      } catch {}
-      await new Promise((r) => setTimeout(r, delay))
-      delay = Math.min(Math.floor(delay * 1.5), 5000)
+        } catch {}
+        await new Promise((r) => setTimeout(r, delay))
+        delay = Math.min(Math.floor(delay * 1.5), 5000)
+      }
+      return false
+    } catch {
+      return false
     }
-    return false
-  }, [])
+  }, [ensureStoreSelected])
 
   // --- Sync Data Function ---
   const syncData = useCallback(async () => {
     setIsSyncing(true)
     setError(null)
     try {
+      const id = await ensureStoreSelected()
       // Start sync in background (no wait)
-      const response = await fetch("/api/sync", {
+      const response = await fetch(withStoreParam("/api/sync", id), {
         method: "POST",
       })
 
@@ -180,7 +218,7 @@ export default function DashboardPage() {
     } finally {
       setIsSyncing(false)
     }
-  }, [fetchData, pollUntilReady])
+  }, [fetchData, pollUntilReady, ensureStoreSelected])
 
   const loadCustomerOrders = useCallback(
     async (customerId: string) => {
@@ -227,6 +265,17 @@ export default function DashboardPage() {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
+              {stores.length > 0 && (
+                <select
+                  value={storeId ?? ''}
+                  onChange={(e) => setStoreId(e.target.value || null)}
+                  className="text-sm border rounded-md px-2 py-1 text-slate-700 bg-white"
+                >
+                  {stores.map((s) => (
+                    <option key={s.id} value={s.id}>{s.shop}</option>
+                  ))}
+                </select>
+              )}
               {lastSynced && (
                 <div className="text-sm text-slate-500">Last synced: {lastSynced.toLocaleTimeString()}</div>
               )}

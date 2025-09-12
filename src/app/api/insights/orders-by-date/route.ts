@@ -100,10 +100,11 @@ export async function GET(request: NextRequest) {
     //   return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     // }
 
-    // Parse date parameters from the request URL
+    // Parse parameters from the request URL
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const storeIdParam = searchParams.get('storeId');
 
     console.log('[API/orders-by-date] Date range:', { startDate, endDate });
 
@@ -111,19 +112,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 });
     }
     
-    // FOR TESTING: Get the first store in the database
-    const store = await prisma.store.findFirst();
-    
-    console.log('[API/orders-by-date] Store found:', store ? store.shop : 'None');
-    
-    if (!store) {
+    // Resolve storeId if not provided
+    let storeId = storeIdParam || undefined;
+    if (!storeId) {
+      const store = await prisma.store.findFirst();
+      storeId = store?.id;
+    }
+    if (!storeId) {
       return NextResponse.json({ error: 'No store found in database.' }, { status: 404 });
     }
 
     // Use Prisma query instead of raw SQL
     const orders = await prisma.order.findMany({
       where: {
-        storeId: store.id,
+        storeId,
         processedAt: {
           gte: new Date(startDate),
           lt: new Date(new Date(endDate).getTime() + 24 * 60 * 60 * 1000),

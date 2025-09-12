@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 // FILE: /api/insights/top-customers/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
@@ -7,6 +6,8 @@ import { currentUser } from '@clerk/nextjs/server';
 export async function GET(request: NextRequest) {
   try {
     console.log('[API/top-customers] Starting request...');
+    const { searchParams } = new URL(request.url);
+    const storeIdParam = searchParams.get('storeId');
     
     // Get authenticated user
     const user = await currentUser();
@@ -26,20 +27,23 @@ export async function GET(request: NextRequest) {
       return result;
     }
 
-    // Get store for authenticated user
-    let store = await prisma.store.findFirst({
-      where: { userId: user.id },
-    });
-
-    // Fallback: if no store for user, get first available store
-    if (!store) {
-      console.log('[API/top-customers] No store for user, trying first available store');
-      store = await prisma.store.findFirst();
+    // Resolve store for authenticated user
+    let storeId = storeIdParam || undefined;
+    if (!storeId) {
+      const s = await prisma.store.findFirst({ where: { userId: user.id } });
+      storeId = s?.id;
     }
 
-    console.log('[API/top-customers] Store found:', store ? store.shop : 'None');
+    // Fallback: if no store for user, get first available store
+    if (!storeId) {
+      console.log('[API/top-customers] No store for user, trying first available store');
+      const s = await prisma.store.findFirst();
+      storeId = s?.id;
+    }
 
-    if (!store) {
+    console.log('[API/top-customers] Store resolved:', storeId || 'None');
+
+    if (!storeId) {
       return NextResponse.json({ 
         error: 'No store found. Please ensure stores exist in the database.',
         availableStores: await getAvailableStores() 
@@ -47,7 +51,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get combined data (customers and orders)
-    const result = await getCombinedDataForStore(store.id);
+    const result = await getCombinedDataForStore(storeId);
     return result;
 
   } catch (error) {

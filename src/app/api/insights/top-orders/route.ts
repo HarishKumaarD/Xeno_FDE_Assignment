@@ -1,25 +1,34 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
-import { currentUser } from '@clerk/nextjs/server'
+import { NextRequest, NextResponse } from 'next/server';
+import prisma from '@/lib/prisma';
+import { currentUser } from '@clerk/nextjs/server';
 
-const prisma = new PrismaClient()
-
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const user = await currentUser()
-    if (!user?.id) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    const { searchParams } = new URL(request.url);
+    const storeIdParam = searchParams.get('storeId');
+
+    const user = await currentUser();
+
+    let storeId = storeIdParam || undefined;
+
+    if (!storeId) {
+      if (user?.id) {
+        const store = await prisma.store.findFirst({ where: { userId: user.id } });
+        storeId = store?.id;
+      }
+      if (!storeId) {
+        const store = await prisma.store.findFirst();
+        storeId = store?.id;
+      }
     }
 
-    // Resolve store for this user. If multiple stores, pick the first for now.
-    const store = await prisma.store.findFirst({ where: { userId: user.id } })
-    if (!store) {
-      return NextResponse.json({ error: 'No connected store found' }, { status: 404 })
+    if (!storeId) {
+      return NextResponse.json({ error: 'No store found' }, { status: 404 });
     }
 
     const orders = await prisma.order.findMany({
-      where: { storeId: store.id },
+      where: { storeId },
       orderBy: { totalPrice: 'desc' },
       take: 5,
       select: {
@@ -29,14 +38,10 @@ export async function GET(request: Request) {
         currency: true,
         processedAt: true,
         customer: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true,
-          }
+          select: { firstName: true, lastName: true, email: true }
         }
       }
-    })
+    });
 
     const mapped = orders.map(o => ({
       id: o.id,
@@ -46,15 +51,14 @@ export async function GET(request: Request) {
       date: o.processedAt ? o.processedAt.toISOString() : null,
       customerName: [o.customer?.firstName, o.customer?.lastName].filter(Boolean).join(' ') || 'Guest',
       customerEmail: o.customer?.email || undefined,
-    }))
+    }));
 
-    return NextResponse.json(mapped)
+    return NextResponse.json(mapped);
   } catch (error) {
-    console.error('[INSIGHTS/top-orders] Error:', error)
-    const message = error instanceof Error ? error.message : 'Unexpected error'
-    return NextResponse.json({ error: message }, { status: 500 })
+    console.error('[INSIGHTS/top-orders] Error:', error);
+    const message = error instanceof Error ? error.message : 'Unexpected error';
+    return NextResponse.json({ error: message }, { status: 500 });
   } finally {
-    await prisma.$disconnect()
   }
 }
 
