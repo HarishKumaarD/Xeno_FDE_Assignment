@@ -131,22 +131,48 @@ export default function DashboardPage() {
     }
   }, [date])
 
+  // Poll totals endpoint until data is available or timeout
+  const pollUntilReady = useCallback(async () => {
+    const timeoutMs = 30000
+    const start = Date.now()
+    let delay = 1000
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const res = await fetch("/api/insights/totals", { cache: "no-store" })
+        if (res.ok) {
+          const data: Totals = await res.json()
+          const hasData = (data.totalOrders ?? 0) > 0 || (data.totalCustomers ?? 0) > 0 || (data.totalSpent ?? 0) > 0
+          if (hasData) {
+            setTotals(data)
+            return true
+          }
+        }
+      } catch {}
+      await new Promise((r) => setTimeout(r, delay))
+      delay = Math.min(Math.floor(delay * 1.5), 5000)
+    }
+    return false
+  }, [])
+
   // --- Sync Data Function ---
   const syncData = useCallback(async () => {
     setIsSyncing(true)
     setError(null)
     try {
-      const response = await fetch("/api/sync?wait=true", {
+      // Start sync in background (no wait)
+      const response = await fetch("/api/sync", {
         method: "POST",
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Sync failed")
+      if (!response.ok && response.status !== 202) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to start sync")
       }
 
+      // Poll until totals shows data or timeout, then fetch full dashboard
+      await pollUntilReady()
       setLastSynced(new Date())
-      await fetchData() // Refresh the dashboard data after sync
+      await fetchData()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       console.error("Error syncing data:", err)
@@ -154,7 +180,7 @@ export default function DashboardPage() {
     } finally {
       setIsSyncing(false)
     }
-  }, [fetchData])
+  }, [fetchData, pollUntilReady])
 
   const loadCustomerOrders = useCallback(
     async (customerId: string) => {
@@ -179,7 +205,7 @@ export default function DashboardPage() {
   // Initial data fetch and sync
   useEffect(() => {
     const initializeDashboard = async () => {
-      // First sync data, then fetch dashboard data
+      // Start background sync and poll; then fetch dashboard data
       await syncData()
     }
 

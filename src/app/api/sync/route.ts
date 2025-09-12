@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { currentUser } from '@clerk/nextjs/server';
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 
 async function syncHistoricalData(store: { id: string; shop: string; accessToken: string; }) {
   console.log(`[SYNC] Starting historical data sync for ${store.shop}...`);
