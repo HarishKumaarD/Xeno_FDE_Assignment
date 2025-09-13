@@ -6,6 +6,13 @@ This project is a multi-tenant Shopify Data Ingestion & Insights Service. The ap
 
 **https://xeno-fde-assignment.vercel.app/**
 
+<img width="1800" height="865" alt="image" src="https://github.com/user-attachments/assets/84a7918e-997b-4d2f-8313-20ee5e406af0" />  
+<img width="1800" height="865" alt="image" src="https://github.com/user-attachments/assets/cb50d431-ae0f-4e35-b023-86b115b83a74" />
+<img width="1800" height="865" alt="image" src="https://github.com/user-attachments/assets/55b2c74e-4dbf-4059-a3a6-c8c9252c66c0" />
+
+
+
+
 ### **Features**
 
 * **Secure User Authentication:** Seamless and secure user sign-up and login flow powered by Clerk, including social sign-on with Google.
