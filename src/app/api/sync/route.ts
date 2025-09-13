@@ -27,7 +27,7 @@ type ShopifyOrder = {
 };
 
 async function fetchCustomers(store: Store) {
-  const customersApiUrl = `https://${store.shop}/admin/api/2024-07/customers.json?limit=250`;
+  const customersApiUrl = `https://${store.shop}/admin/api/2024-07/customers.json?limit=100`;
   const response = await fetch(customersApiUrl, {
     headers: { 'X-Shopify-Access-Token': store.accessToken },
     cache: 'no-store',
