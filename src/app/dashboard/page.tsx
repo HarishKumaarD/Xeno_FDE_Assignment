@@ -85,14 +85,23 @@ export default function DashboardPage() {
 
   const ensureStoreSelected = useCallback(async () => {
     if (storeId) return storeId
-    const res = await fetch("/api/stores", { cache: "no-store" })
-    if (!res.ok) throw new Error("Failed to load stores")
-    const data = (await res.json()) as { stores: StoreSummary[] }
-    setStores(data.stores || [])
-    const first = data.stores?.[0]?.id || null
-    setStoreId(first)
-    if (!first) throw new Error("No stores found for your account")
-    return first
+    
+    try {
+      const res = await fetch("/api/stores", { cache: "no-store" })
+      if (!res.ok) throw new Error("Failed to load stores")
+      
+      const data = (await res.json()) as { stores: StoreSummary[] }
+      setStores(data.stores || [])
+      
+      const first = data.stores?.[0]?.id || null
+      setStoreId(first)
+      
+      if (!first) throw new Error("No stores found in the database")
+      return first
+    } catch (error) {
+      console.error("Error loading stores:", error)
+      throw error
+    }
   }, [storeId])
 
   const withStoreParam = (url: string, id: string) => {
@@ -103,8 +112,11 @@ export default function DashboardPage() {
   // --- Data Fetching Logic ---
   const fetchData = useCallback(async () => {
     setIsLoading(true)
+    setError(null)
+    
     try {
       const id = await ensureStoreSelected()
+      
       // Fetch all dashboard data in parallel for better performance
       const [totalsRes, chartRes, avgRevRes, topCustomersRes, currentMonthRes] = await Promise.all([
         fetch(withStoreParam("/api/insights/totals", id)),
@@ -168,8 +180,10 @@ export default function DashboardPage() {
     const timeoutMs = 30000
     const start = Date.now()
     let delay = 1000
+    
     try {
       const id = await ensureStoreSelected()
+      
       while (Date.now() - start < timeoutMs) {
         try {
           const res = await fetch(withStoreParam("/api/insights/totals", id), { cache: "no-store" })
@@ -181,12 +195,16 @@ export default function DashboardPage() {
               return true
             }
           }
-        } catch {}
+        } catch (pollError) {
+          console.error("Polling error:", pollError)
+        }
+        
         await new Promise((r) => setTimeout(r, delay))
         delay = Math.min(Math.floor(delay * 1.5), 5000)
       }
       return false
-    } catch {
+    } catch (error) {
+      console.error("Poll until ready error:", error)
       return false
     }
   }, [ensureStoreSelected])
@@ -195,8 +213,10 @@ export default function DashboardPage() {
   const syncData = useCallback(async () => {
     setIsSyncing(true)
     setError(null)
+    
     try {
       const id = await ensureStoreSelected()
+      
       // Start sync in background (no wait)
       const response = await fetch(withStoreParam("/api/sync", id), {
         method: "POST",
@@ -224,8 +244,12 @@ export default function DashboardPage() {
     async (customerId: string) => {
       setIsOrdersLoading(true)
       try {
+        const id = await ensureStoreSelected()
         const res = await fetch(
-          `/api/insights/customer-orders?customerId=${customerId}&startDate=${format(date!.from!, "yyyy-MM-dd")}&endDate=${format(date!.to!, "yyyy-MM-dd")}`,
+          withStoreParam(
+            `/api/insights/customer-orders?customerId=${customerId}&startDate=${format(date!.from!, "yyyy-MM-dd")}&endDate=${format(date!.to!, "yyyy-MM-dd")}`,
+            id
+          )
         )
         if (!res.ok) throw new Error("Failed to load customer orders")
         const data = await res.json()
@@ -237,14 +261,21 @@ export default function DashboardPage() {
         setIsOrdersLoading(false)
       }
     },
-    [date],
+    [date, ensureStoreSelected],
   )
 
   // Initial data fetch and sync
   useEffect(() => {
     const initializeDashboard = async () => {
-      // Start background sync and poll; then fetch dashboard data
-      await syncData()
+      try {
+        // Start background sync and poll; then fetch dashboard data
+        await syncData()
+      } catch (error) {
+        console.error("Failed to initialize dashboard:", error)
+        setError("Failed to initialize dashboard. Please refresh the page.")
+        setIsLoading(false)
+        setIsSyncing(false)
+      }
     }
 
     initializeDashboard()
@@ -266,15 +297,9 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center space-x-4">
               {stores.length > 0 && (
-                <select
-                  value={storeId ?? ''}
-                  onChange={(e) => setStoreId(e.target.value || null)}
-                  className="text-sm border rounded-md px-2 py-1 text-slate-700 bg-white"
-                >
-                  {stores.map((s) => (
-                    <option key={s.id} value={s.id}>{s.shop}</option>
-                  ))}
-                </select>
+                <div className="text-sm text-slate-700 bg-white px-3 py-2 rounded-md border border-slate-200">
+                  Store: {stores[0].shop}
+                </div>
               )}
               {lastSynced && (
                 <div className="text-sm text-slate-500">Last synced: {lastSynced.toLocaleTimeString()}</div>

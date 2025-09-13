@@ -1,22 +1,13 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client'
 
 declare global {
-  // eslint-disable-next-line no-var
-  var prismaGlobal: PrismaClient | undefined;
+  var prisma: PrismaClient | undefined
 }
 
-const datasourceUrl = process.env.PRISMA_ACCELERATE_URL || process.env.DATABASE_URL;
-
-export const prisma: PrismaClient =
-  globalThis.prismaGlobal ?? new PrismaClient({
-    datasources: datasourceUrl ? { db: { url: datasourceUrl } } : undefined,
-    log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
-  });
+const prisma = globalThis.prisma || new PrismaClient()
 
 if (process.env.NODE_ENV !== 'production') {
-  globalThis.prismaGlobal = prisma;
+  globalThis.prisma = prisma
 }
 
 export default prisma;
-
-
