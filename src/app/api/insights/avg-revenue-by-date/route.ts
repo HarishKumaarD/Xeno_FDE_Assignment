@@ -1,4 +1,3 @@
-//api\insights\avg-revenue-by-date
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 

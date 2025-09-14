@@ -1,4 +1,3 @@
-// FILE 3: /api/insights/top-orders/route.ts
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
