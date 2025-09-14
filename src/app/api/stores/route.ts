@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { getAuth } from '@clerk/nextjs/server';
+import { currentUser } from '@clerk/nextjs/server';
 
 export async function GET(request: NextRequest) {
   try {
     // 1. Get the authenticated user's ID from Clerk
-    const { userId } = getAuth(request);
-    if (!userId) {
+    const user = await currentUser();
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const userId = user.id;
 
     // 2. Fetch ONLY the stores that belong to the authenticated user
     const stores = await prisma.store.findMany({

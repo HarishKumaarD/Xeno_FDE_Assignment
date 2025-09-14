@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { getAuth } from '@clerk/nextjs/server';
+import { currentUser } from '@clerk/nextjs/server';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -92,10 +92,11 @@ async function syncHistoricalData(store: Store) {
 // --- Final, Secure API Route Handler ---
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = getAuth(request);
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const user = await currentUser();
+        if (!user) {
+          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        const userId = user.id;
 
     const { searchParams } = new URL(request.url);
     const storeId = searchParams.get('storeId');

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth } from '@clerk/nextjs/server';
+import { currentUser } from '@clerk/nextjs/server'; // CORRECTED IMPORT
 
 export async function GET(request: NextRequest) {
   // First, ensure the user is logged into our app before allowing them to connect a store.
-  const { userId } = getAuth(request);
-  if (!userId) {
+  const user = await currentUser(); // CORRECTED LOGIC
+  if (!user) {
     // If the user isn't logged in, redirect them to the login page.
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
